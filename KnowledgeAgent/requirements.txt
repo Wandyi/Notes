@@ -1,0 +1,11 @@
+# The reference implementation runs on the Python standard library alone —
+# no packages are required to run the example or the test suite.
+#
+# Optional, for the production LLM path (knowledge_agent/llm/client.py::
+# AnthropicSynthesizer, defaults to claude-opus-5 with adaptive thinking):
+#
+#   anthropic>=0.40
+#
+# Optional, if you prefer running the tests under pytest instead of unittest:
+#
+#   pytest>=7

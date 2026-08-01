@@ -1,0 +1,113 @@
+<svg viewBox="0 0 900 810" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="810" fill="#ffffff"/>
+  <text x="450" y="806" text-anchor="middle" font-size="11" fill="#94a3b8">Fan-out research agent — plan → parallel research → synthesize</text>
+
+  <!-- Question -->
+  <rect x="300" y="22" width="300" height="44" rx="22" fill="#1e293b"/>
+  <text x="450" y="49" text-anchor="middle" font-size="15" font-weight="600" fill="#ffffff">Broad research question</text>
+
+  <!-- Orchestrator container -->
+  <rect x="40" y="98" width="620" height="150" rx="12" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="56" y="120" font-size="13" font-weight="700" fill="#4338ca">ORCHESTRATOR</text>
+  <!-- Planner -->
+  <rect x="66" y="132" width="270" height="94" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="201" y="163" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">Planner</text>
+  <text x="201" y="184" text-anchor="middle" font-size="11.5" fill="#475569">structured output →</text>
+  <text x="201" y="200" text-anchor="middle" font-size="11.5" fill="#475569">sub-questions + deps</text>
+  <!-- Scheduler -->
+  <rect x="364" y="132" width="270" height="94" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="499" y="163" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">Wave scheduler</text>
+  <text x="499" y="184" text-anchor="middle" font-size="11.5" fill="#475569">dependency-aware,</text>
+  <text x="499" y="200" text-anchor="middle" font-size="11.5" fill="#475569">bounded concurrency</text>
+
+  <!-- Tracer -->
+  <rect x="700" y="98" width="170" height="150" rx="12" fill="#fdf4ff" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="785" y="120" text-anchor="middle" font-size="13" font-weight="700" fill="#7e22ce">Tracer</text>
+  <text x="785" y="150" text-anchor="middle" font-size="11.5" fill="#6b21a8">tokens · latency</text>
+  <text x="785" y="168" text-anchor="middle" font-size="11.5" fill="#6b21a8">cost · web calls</text>
+  <text x="785" y="196" text-anchor="middle" font-size="10.5" fill="#9333ea">observes every</text>
+  <text x="785" y="211" text-anchor="middle" font-size="10.5" fill="#9333ea">model call</text>
+  <line x1="700" y1="173" x2="662" y2="173" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <!-- Question -> Planner (orthogonal) -->
+  <path d="M450,66 L450,84 L201,84 L201,131" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <!-- Planner -> Scheduler -->
+  <path d="M336,179 L362,179" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Fan-out bus -->
+  <path d="M450,248 L450,358" fill="none" stroke="#334155" stroke-width="1.6"/>
+  <line x1="173" y1="358" x2="727" y2="358" stroke="#334155" stroke-width="1.6"/>
+  <path d="M173,358 L173,382" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M450,358 L450,382" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M727,358 L727,382" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="238" y="352" font-size="11.5" font-style="italic" fill="#475569">fan-out (dependency waves)</text>
+
+  <!-- web_search pill -->
+  <rect x="628" y="286" width="214" height="38" rx="19" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="735" y="310" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">web_search (server tool)</text>
+  <path d="M742,324 L730,382" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <!-- Researcher band -->
+  <rect x="28" y="348" width="844" height="152" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="44" y="368" font-size="12.5" font-weight="700" fill="#047857">RESEARCHER SUBAGENTS · isolated context each</text>
+
+  <!-- R0 -->
+  <rect x="48" y="384" width="250" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+  <text x="173" y="415" text-anchor="middle" font-size="13.5" font-weight="700" fill="#065f46">Researcher Q0</text>
+  <text x="173" y="437" text-anchor="middle" font-size="11.5" fill="#475569">web_search loop</text>
+  <text x="173" y="453" text-anchor="middle" font-size="11.5" fill="#475569">+ bounded retries</text>
+  <text x="173" y="472" text-anchor="middle" font-size="11.5" fill="#475569">→ ResearchFinding</text>
+  <!-- R1 -->
+  <rect x="325" y="384" width="250" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+  <text x="450" y="415" text-anchor="middle" font-size="13.5" font-weight="700" fill="#065f46">Researcher Q1</text>
+  <text x="450" y="437" text-anchor="middle" font-size="11.5" fill="#475569">web_search loop</text>
+  <text x="450" y="453" text-anchor="middle" font-size="11.5" fill="#475569">+ bounded retries</text>
+  <text x="450" y="472" text-anchor="middle" font-size="11.5" fill="#475569">→ ResearchFinding</text>
+  <!-- R2 -->
+  <rect x="602" y="384" width="250" height="104" rx="8" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+  <text x="727" y="415" text-anchor="middle" font-size="13.5" font-weight="700" fill="#065f46">Researcher Q2</text>
+  <text x="727" y="437" text-anchor="middle" font-size="11.5" fill="#475569">depends on Q0 —</text>
+  <text x="727" y="453" text-anchor="middle" font-size="11.5" fill="#475569">runs in next wave</text>
+  <text x="727" y="472" text-anchor="middle" font-size="11.5" fill="#475569">→ ResearchFinding</text>
+
+  <!-- Researchers -> scratchpad -->
+  <path d="M173,488 L352,527" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M450,488 L450,519" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M727,488 L548,527" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="298" y="512" font-size="11.5" font-style="italic" fill="#475569">findings</text>
+
+  <!-- Scratchpad cylinder -->
+  <ellipse cx="450" cy="598" rx="180" ry="15" fill="#e2e8f0" stroke="#475569" stroke-width="1.5"/>
+  <rect x="270" y="536" width="360" height="62" fill="#f1f5f9"/>
+  <line x1="270" y1="536" x2="270" y2="598" stroke="#475569" stroke-width="1.5"/>
+  <line x1="630" y1="536" x2="630" y2="598" stroke="#475569" stroke-width="1.5"/>
+  <ellipse cx="450" cy="536" rx="180" ry="15" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+  <text x="450" y="563" text-anchor="middle" font-size="13.5" font-weight="700" fill="#334155">Shared scratchpad</text>
+  <text x="450" y="582" text-anchor="middle" font-size="11" fill="#475569">dedupe + upstream context</text>
+
+  <!-- upstream context back to R2 (dashed) -->
+  <path d="M628,556 C690,545 748,520 742,490" fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <text x="676" y="524" font-size="10.5" font-style="italic" fill="#0369a1">upstream ctx</text>
+
+  <!-- Scratchpad -> Synthesizer -->
+  <path d="M450,613 L450,646" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="460" y="635" font-size="11.5" font-style="italic" fill="#475569">all findings</text>
+
+  <!-- Synthesizer -->
+  <rect x="300" y="648" width="300" height="70" rx="8" fill="#ffffff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="450" y="679" text-anchor="middle" font-size="14" font-weight="700" fill="#3730a3">Synthesizer</text>
+  <text x="450" y="700" text-anchor="middle" font-size="11.5" fill="#475569">merge findings → one cited report</text>
+
+  <!-- Synthesizer -> report -->
+  <path d="M450,718 L450,750" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Report -->
+  <rect x="300" y="752" width="300" height="44" rx="22" fill="#1e293b"/>
+  <text x="450" y="779" text-anchor="middle" font-size="15" font-weight="600" fill="#ffffff">Final cited report</text>
+</svg>
