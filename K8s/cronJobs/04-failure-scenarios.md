@@ -398,8 +398,9 @@ kubectl -n $NS get jobs --sort-by=.metadata.creationTimestamp \
 ```
 The Jobs with an empty `OWNER` are the manual ones.
 
-**Fix.** `Forbid` is table stakes. For anything where a duplicate is a money or correctness
-problem, the exclusion must live at the data — doc 05.
+**Fix.** Set `concurrencyPolicy: Forbid` — it's a necessary first step, but not a sufficient one,
+since the manual and cross-cluster paths above never go through it. For anything where a duplicate
+is a money or correctness problem, the real exclusion must live at the data layer instead — doc 05.
 
 ### F-16 · A window of data was never processed
 

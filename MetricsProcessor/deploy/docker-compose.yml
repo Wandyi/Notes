@@ -1,0 +1,74 @@
+# Local three-service topology.
+#
+# Two aggregator replicas, because one replica hides every interesting property:
+# partition ownership, scatter-gather reads, and the fact that a series must land
+# on exactly one aggregator for its ordering guarantee to hold.
+services:
+  aggregator-0:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: {SERVICE: aggregator}
+    environment:
+      LISTEN_ADDR: ":8082"
+      SHARDS: "4"
+      WINDOW_SIZE: "10s"
+      ALLOWED_LATENESS: "2s"
+      REORDER_DEPTH: "64"
+      MAX_REORDER_DELAY: "250ms"
+      RETENTION: "1h"
+      OVERFLOW_POLICY: "drop_newest"
+      LOG_FORMAT: "text"
+    # No healthcheck: the image is distroless and has no shell or curl to probe
+    # with. Kubernetes probes /readyz over HTTP directly and needs no in-image
+    # tooling, which is the deployment target that matters. See deploy/k8s/.
+    ports: ["8092:8082"]
+
+  aggregator-1:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: {SERVICE: aggregator}
+    environment:
+      LISTEN_ADDR: ":8082"
+      SHARDS: "4"
+      WINDOW_SIZE: "10s"
+      ALLOWED_LATENESS: "2s"
+      REORDER_DEPTH: "64"
+      MAX_REORDER_DELAY: "250ms"
+      RETENTION: "1h"
+      OVERFLOW_POLICY: "drop_newest"
+      LOG_FORMAT: "text"
+    ports: ["8093:8082"]
+
+  ingest-gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: {SERVICE: ingest-gateway}
+    environment:
+      LISTEN_ADDR: ":8081"
+      # Order matters and must be identical on every gateway replica: this list
+      # is half of the partition-to-owner mapping.
+      AGGREGATOR_ENDPOINTS: "http://aggregator-0:8082,http://aggregator-1:8082"
+      BUS_PARTITIONS: "64"
+      MAX_BATCH_POINTS: "10000"
+      LOG_FORMAT: "text"
+    ports: ["8081:8081"]
+    depends_on: [aggregator-0, aggregator-1]
+    deploy:
+      replicas: 2
+
+  query-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args: {SERVICE: query-api}
+    environment:
+      LISTEN_ADDR: ":8083"
+      AGGREGATOR_ENDPOINTS: "http://aggregator-0:8082,http://aggregator-1:8082"
+      FANOUT_TIMEOUT: "2s"
+      MIN_REPLICAS: "2"
+      LOG_FORMAT: "text"
+    ports: ["8083:8083"]
+    depends_on: [aggregator-0, aggregator-1]

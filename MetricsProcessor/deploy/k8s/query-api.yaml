@@ -1,0 +1,54 @@
+# The read tier is stateless and scatter-gathers across every aggregator.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-api
+  labels: {app: query-api, tier: read}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: query-api}
+  template:
+    metadata:
+      labels: {app: query-api, tier: read}
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: query-api
+          image: metrics/query-api:dev
+          ports:
+            - {name: http, containerPort: 8083}
+          env:
+            - {name: LISTEN_ADDR, value: ":8083"}
+            - name: AGGREGATOR_ENDPOINTS
+              value: "http://aggregator-0.aggregator:8082,http://aggregator-1.aggregator:8082,http://aggregator-2.aggregator:8082"
+            - {name: FANOUT_TIMEOUT, value: "2s"}
+            # Below this many answering replicas the response is 206 Partial
+            # Content rather than 200. Set it to the replica count when callers
+            # need completeness; lower it when they prefer a fast partial answer.
+            - {name: MIN_REPLICAS, value: "3"}
+          resources:
+            requests: {cpu: "250m", memory: "256Mi"}
+            limits:   {cpu: "1",    memory: "512Mi"}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: query-api
+spec:
+  selector: {app: query-api}
+  ports:
+    - {name: http, port: 80, targetPort: http}

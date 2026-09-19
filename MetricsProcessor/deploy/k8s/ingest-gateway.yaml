@@ -1,0 +1,81 @@
+# The gateway is stateless, so it is a Deployment and it autoscales on CPU.
+# It is the tier that grows with the number of *producers*, which is a completely
+# different axis from the aggregator's growth with series cardinality -- which is
+# the whole reason the two are separate services.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest-gateway
+  labels: {app: ingest-gateway, tier: ingest}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: ingest-gateway}
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  template:
+    metadata:
+      labels: {app: ingest-gateway, tier: ingest}
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          image: metrics/ingest-gateway:dev
+          ports:
+            - {name: http, containerPort: 8081}
+          env:
+            - {name: LISTEN_ADDR, value: ":8081"}
+            # Per-pod DNS from the headless service. This list must be byte
+            # identical on every gateway replica: it is half of the
+            # partition-to-owner mapping, and two gateways disagreeing about it
+            # would send one series to two aggregators and break its ordering.
+            - name: AGGREGATOR_ENDPOINTS
+              value: "http://aggregator-0.aggregator:8082,http://aggregator-1.aggregator:8082,http://aggregator-2.aggregator:8082"
+            - {name: BUS_PARTITIONS,   value: "192"}
+            - {name: MAX_BATCH_POINTS, value: "10000"}
+            - {name: PUBLISH_TIMEOUT,  value: "3s"}
+            - {name: PUBLISH_RETRIES,  value: "2"}
+            - {name: SHUTDOWN_GRACE,   value: "15s"}
+            - {name: GOMAXPROCS, valueFrom: {resourceFieldRef: {resource: limits.cpu}}}
+          resources:
+            requests: {cpu: "500m", memory: "256Mi"}
+            limits:   {cpu: "2",    memory: "512Mi"}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest-gateway
+spec:
+  selector: {app: ingest-gateway}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ingest-gateway
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: ingest-gateway}
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleDown:
+      # Telemetry load is spiky. Scaling down eagerly means scaling back up
+      # during the next spike, which is exactly when shedding hurts most.
+      stabilizationWindowSeconds: 300

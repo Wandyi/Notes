@@ -70,7 +70,7 @@ flowchart LR
   BR -->|no / too broad| ESC["Escalate: requires senior approver\nor split into smaller steps"]
   BR -->|yes| POL{"Approval policy:\nauto-allowlist match?"}
   POL -->|no| HUMAN["🚦 Human Approval Gateway"]
-  POL -->|yes (narrow, reversible, high-confidence)| AUTO["Auto-remediate\n(still audited + verified)"]
+  POL -->|"yes (narrow, reversible, high-confidence)"| AUTO["Auto-remediate\n(still audited + verified)"]
   HUMAN -->|approve| EXEC["Executor"]
   AUTO --> EXEC
 ```

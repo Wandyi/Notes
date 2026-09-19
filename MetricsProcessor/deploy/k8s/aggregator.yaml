@@ -1,0 +1,96 @@
+# The aggregator is a StatefulSet, not a Deployment.
+#
+# It holds in-flight aggregation state partitioned by series key, so replica
+# identity is part of the data model: aggregator-0 owns a fixed set of partitions
+# and the gateway addresses it by name. A Deployment's random pod names and
+# unordered rollouts would reshuffle partition ownership on every deploy, which
+# means every open window is abandoned and every reorder buffer restarts cold.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: aggregator
+  labels: {app: aggregator, tier: aggregation}
+spec:
+  serviceName: aggregator
+  replicas: 3
+  # OrderedReady, the default: one pod at a time, so at most one partition's
+  # worth of state is in flight during a rollout.
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels: {app: aggregator}
+  template:
+    metadata:
+      labels: {app: aggregator, tier: aggregation}
+    spec:
+      # Give the pipeline time to drain queues and flush open windows. It must
+      # exceed WINDOW_SIZE + ALLOWED_LATENESS + SHUTDOWN_GRACE, otherwise SIGKILL
+      # arrives mid-flush and the final windows are lost.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: aggregator
+          image: metrics/aggregator:dev
+          ports:
+            - {name: http, containerPort: 8082}
+          env:
+            - {name: LISTEN_ADDR,       value: ":8082"}
+            - {name: WINDOW_SIZE,       value: "10s"}
+            - {name: ALLOWED_LATENESS,  value: "2s"}
+            - {name: REORDER_DEPTH,     value: "64"}
+            - {name: MAX_REORDER_DELAY, value: "250ms"}
+            - {name: SHARD_QUEUE_SIZE,  value: "8192"}
+            - {name: OVERFLOW_POLICY,   value: "drop_newest"}
+            - {name: MAX_FUTURE_SKEW,   value: "5m"}
+            - {name: RETENTION,         value: "1h"}
+            - {name: MAX_SERIES,        value: "200000"}
+            - {name: SHUTDOWN_GRACE,    value: "20s"}
+            # Shards default to GOMAXPROCS, and GOMAXPROCS should track the CPU
+            # limit rather than the node's core count, or the scheduler thrashes
+            # against the CFS quota.
+            - {name: GOMAXPROCS, valueFrom: {resourceFieldRef: {resource: limits.cpu}}}
+            - {name: GOMEMLIMIT, value: "3600MiB"}
+          resources:
+            requests: {cpu: "2",  memory: "2Gi"}
+            limits:   {cpu: "4",  memory: "4Gi"}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          # Give a cold pod room to subscribe and warm up before liveness can
+          # kill it -- restart loops during a rollout are self-inflicted outages.
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 3
+            failureThreshold: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+# Headless service: the gateway needs stable per-pod DNS
+# (aggregator-0.aggregator, aggregator-1.aggregator, ...) because it addresses a
+# specific partition owner, not "any healthy replica".
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregator
+spec:
+  clusterIP: None
+  selector: {app: aggregator}
+  ports:
+    - {name: http, port: 8082, targetPort: http}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aggregator
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app: aggregator}

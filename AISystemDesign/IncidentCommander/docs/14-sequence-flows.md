@@ -42,7 +42,7 @@ sequenceDiagram
   EC-->>IC: correlated timeline (6 salient events)
   IC->>HR: HYPOTHESIZE → DEBATE → SCORE
   HR->>AG: skeptic: check Redis latency (falsify H1)
-  AG-->>HR: Redis flat → H1 survives; H2,H3 falsified
+  AG-->>HR: Redis flat → H1 survives, H2 and H3 falsified
   HR-->>IC: H1 conf 0.88 (3 independent classes, no contradictions)
   IC->>GT: APPROVE (render root cause + proposed rollback + dry-run)
   GT->>EX: dry-run rollback 2.3.0
@@ -57,7 +57,7 @@ sequenceDiagram
   HV-->>IC: recovered + stable 3m ✅
   IC->>PM: DOCUMENT
   PM-->>IC: blameless postmortem draft
-  IC->>CP: close incident + audit; label golden incident
+  IC->>CP: close incident + audit, label golden incident
 ```
 
 ---
@@ -104,7 +104,7 @@ sequenceDiagram
     IC->>GT: APPROVE (recommend, human decides)
   else rounds exhausted
     IC->>GT: present evidence + top candidates, NO proposed fix
-    Note over GT: page human to drive; IC assisted, didn't decide
+    Note over GT: page human to drive — IC assisted, didn't decide
   end
 ```
 

@@ -40,7 +40,7 @@ spent on *judgment*, not *janitorial* work.
 
 ```mermaid
 flowchart LR
-  Q["Reasoning request"] --> C{Semantic/exact cache\n(incident-scoped)}
+  Q["Reasoning request"] --> C{"Semantic/exact cache\n(incident-scoped)"}
   C -->|hit| HIT["return cached result"]
   C -->|miss| M["run model → cache (scoped)"]
 ```
