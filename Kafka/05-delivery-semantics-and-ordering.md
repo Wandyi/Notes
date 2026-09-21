@@ -48,12 +48,14 @@ This gives you the test that answers every exactly-once question you will ever b
 
 Applied to Riverbend:
 
-| Consumer | Side effect | Same transactional system as the offset? | Achievable |
-|---|---|---|---|
-| `clickstream-rollup-group` | Produces aggregates to another Kafka topic | **Yes** — Kafka transactions cover both | Exactly-once |
-| `order-processor-group` | Writes to `orders-db` (Postgres) | No — two systems | At-least-once + idempotence |
-| `fraud-scorer-group` | Calls a third-party HTTPS API | No — and you do not control it | At-least-once + idempotence |
-| `analytics-sink-group` | Writes files to S3 | No, but S3 writes are idempotent by key | At-least-once, effectively once |
+
+| Consumer                   | Side effect                                | Same transactional system as the offset? | Achievable                      |
+| -------------------------- | ------------------------------------------ | ---------------------------------------- | ------------------------------- |
+| `clickstream-rollup-group` | Produces aggregates to another Kafka topic | **Yes** — Kafka transactions cover both  | Exactly-once                    |
+| `order-processor-group`    | Writes to `orders-db` (Postgres)           | No — two systems                         | At-least-once + idempotence     |
+| `fraud-scorer-group`       | Calls a third-party HTTPS API              | No — and you do not control it           | At-least-once + idempotence     |
+| `analytics-sink-group`     | Writes files to S3                         | No, but S3 writes are idempotent by key  | At-least-once, effectively once |
+
 
 Only the first row can use Kafka's exactly-once semantics. The other three are the majority of
 real consumers, and for them the phrase that describes the achievable goal is **effectively
@@ -64,18 +66,26 @@ none of which a transaction protects you from.
 
 ---
 
+
+
 ## Failure catalogue
 
-| Class | The question it answers | Scenarios |
-|---|---|---|
-| **A. The semantics you have are not the ones you wanted** | What am I actually running? | `D-01` … `D-02` |
-| **B. Exactly-once, correctly and incorrectly** | Does the transaction cover what I think? | `D-03` … `D-05` |
-| **C. Making duplicates harmless** | The practical answer for most consumers | `D-06` |
-| **D. Ordering, lost quietly** | I keyed everything. Why is it out of order? | `D-07` … `D-09` |
+
+| Class                                                     | The question it answers                     | Scenarios       |
+| --------------------------------------------------------- | ------------------------------------------- | --------------- |
+| **A. The semantics you have are not the ones you wanted** | What am I actually running?                 | `D-01` … `D-02` |
+| **B. Exactly-once, correctly and incorrectly**            | Does the transaction cover what I think?    | `D-03` … `D-05` |
+| **C. Making duplicates harmless**                         | The practical answer for most consumers     | `D-06`          |
+| **D. Ordering, lost quietly**                             | I keyed everything. Why is it out of order? | `D-07` … `D-09` |
+
 
 ---
 
+
+
 ## Class A — the semantics you have are not the ones you wanted
+
+
 
 ### D-01 · At-most-once by accident
 
@@ -85,12 +95,12 @@ correlated with restarts and rebalances.
 **Mechanism.** Almost nobody chooses at-most-once deliberately. They arrive at it three ways, and
 all three are defaults or reasonable-looking code:
 
-1. **`enable.auto.commit=true`** (the default) commits inside `poll()`, before you have finished
-   processing the previous batch. Doc 04, `C-06`.
+1. `enable.auto.commit=true` (the default) commits inside `poll()`, before you have finished
+  processing the previous batch. Doc 04, `C-06`.
 2. **Committing at the top of the loop** — `commitSync()` then process — which looks tidy and is
-   wrong.
-3. **A `ConsumerRebalanceListener.onPartitionsRevoked` that commits the current position** while
-   in-flight work from that batch has not finished. The commit races the work.
+  wrong.
+3. **A** `ConsumerRebalanceListener.onPartitionsRevoked` **that commits the current position** while
+  in-flight work from that batch has not finished. The commit races the work.
 
 **Confirm it.** Read the loop. The question is whether any code path can commit an offset whose
 record has not completed its side effect. If yes, you are at-most-once on that path regardless of
@@ -110,13 +120,15 @@ properly.
 **Mechanism.** This is at-least-once working correctly, and it is worth enumerating every source
 so that "how often" becomes a number rather than a worry:
 
-| Source | Frequency at Riverbend | Bounded by |
-|---|---|---|
-| Consumer crash between processing and commit | Every ungraceful pod termination | One poll batch (`max.poll.records`) |
-| Rebalance revoking a partition mid-batch | Every deployment, ×2 per pod if eager (doc 04, `C-02`) | One poll batch per moving partition |
-| Zombie consumer still processing after revocation (doc 04, `C-13`) | Every rebalance with slow processing | One in-flight batch |
-| Producer retry of a write whose response was lost (doc 03, `P-05`) | Rare; eliminated within a session by idempotence | One batch |
-| Deliberate offset reset or replay | Whenever an operator does it | Whatever you reset to |
+
+| Source                                                             | Frequency at Riverbend                                 | Bounded by                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------- |
+| Consumer crash between processing and commit                       | Every ungraceful pod termination                       | One poll batch (`max.poll.records`) |
+| Rebalance revoking a partition mid-batch                           | Every deployment, ×2 per pod if eager (doc 04, `C-02`) | One poll batch per moving partition |
+| Zombie consumer still processing after revocation (doc 04, `C-13`) | Every rebalance with slow processing                   | One in-flight batch                 |
+| Producer retry of a write whose response was lost (doc 03, `P-05`) | Rare; eliminated within a session by idempotence       | One batch                           |
+| Deliberate offset reset or replay                                  | Whenever an operator does it                           | Whatever you reset to               |
+
 
 The last row is the one people forget when designing for exactly-once. Even a perfect
 transactional pipeline gets replayed by a human during an incident, and if your consumer cannot
@@ -127,7 +139,11 @@ duplicates even if you have transactions**, because operations will produce them
 
 ---
 
+
+
 ## Class B — exactly-once, correctly and incorrectly
+
+
 
 ### D-03 · Kafka transactions: what they actually cover
 
@@ -166,15 +182,15 @@ offset commit — **all within one Kafka cluster**.
 **What it does not cover, and this is the part that matters:**
 
 - **Any side effect outside Kafka.** A database write, an HTTP call, a file, an email. The
-  transaction commits or aborts Kafka state; it has no influence over anything else. A pipeline
-  that reads Kafka, writes Postgres, and commits a Kafka transaction has exactly-once Kafka state
-  and at-least-once Postgres state.
+transaction commits or aborts Kafka state; it has no influence over anything else. A pipeline
+that reads Kafka, writes Postgres, and commits a Kafka transaction has exactly-once Kafka state
+and at-least-once Postgres state.
 - **More than one cluster.** There is no cross-cluster transaction.
 - **Anything a human does.** An offset reset replays committed transactions.
 - **Non-determinism in your code.** If processing a record twice produces different outputs —
-  because it reads the clock, calls a random number generator, or depends on external state — the
-  aborted attempt and the retried attempt differ, and only the committed one counts, which may
-  not be the one you expected.
+because it reads the clock, calls a random number generator, or depends on external state — the
+aborted attempt and the retried attempt differ, and only the committed one counts, which may
+not be the one you expected.
 
 **The cost.** Transactions add latency and throughput overhead: two extra coordinator round trips
 per transaction, plus marker writes to every partition involved. The overhead is per
@@ -184,6 +200,7 @@ For `clickstream-rollup-group` aggregating five-minute windows, that trade is fr
 low-latency pipeline committing every 10 ms, the overhead is severe.
 
 **Confirm what you have.**
+
 ```bash
 # Which producers are transactional, and what state are their transactions in?
 kafka-transactions.sh --bootstrap-server $BS list
@@ -229,6 +246,7 @@ no amount of scaling it will help.
 
 **Confirm it.** The diagnostic is specific and it should be in your runbook, because nothing else
 finds this:
+
 ```bash
 # Scan for transactions that are open far longer than they should be
 kafka-transactions.sh --bootstrap-server $BS find-hanging --broker-id 3
@@ -237,16 +255,19 @@ kafka-transactions.sh --bootstrap-server $BS find-hanging --broker-id 3
 # A large, non-shrinking gap is the confirmation.
 kafka-get-offsets.sh --bootstrap-server $BS --topic payments.settled --time -1   # high watermark
 ```
+
 A quicker heuristic during an incident: run a throwaway console consumer with
 `--isolation-level read_uncommitted`. If it sees recent records and your production consumer does
 not, you have an LSO problem and not a consumer problem.
 
 **Recover.** Abort the hanging transaction explicitly. This discards its records, which is the
 correct outcome — they were never committed and no `read_committed` consumer ever saw them:
+
 ```bash
 kafka-transactions.sh --bootstrap-server $BS abort \
   --topic payments.settled --partition 4 --start-offset 4201338
 ```
+
 The LSO advances immediately and the stalled consumer drains at whatever rate it can manage.
 
 **Prevent.** Run Kafka 3.6 or later so KIP-890's fixes apply. Alert on the high-watermark-minus-LSO
@@ -271,9 +292,9 @@ the Kafka client.
 Kafka as two operations, make the publish a *consequence* of the database write:
 
 1. In **one database transaction**, write the business row and an `outbox` row describing the
-   event.
+  event.
 2. A separate process reads the `outbox` table and publishes to Kafka, marking rows published (or
-   using change data capture — Debezium reading the Postgres write-ahead log — which avoids the
+  using change data capture — Debezium reading the Postgres write-ahead log — which avoids the
    polling entirely).
 
 The event exists in the outbox **if and only if** the business change committed, because they are
@@ -311,7 +332,11 @@ payments, ledgers — and use `D-06` everywhere else.
 
 ---
 
+
+
 ## Class C — making duplicates harmless
+
+
 
 ### D-06 · Idempotent consumers, and the dedup key nobody sizes
 
@@ -319,16 +344,16 @@ payments, ledgers — and use `D-06` everywhere else.
 once. Four ways to get there, in order of preference:
 
 1. **Natural idempotence.** The operation is already repeatable: `SET status='shipped'`, an S3
-   `PutObject` to a deterministic key, a `DELETE`. Nothing to build. Always check for this first —
+  `PutObject` to a deterministic key, a `DELETE`. Nothing to build. Always check for this first —
    a surprising number of operations can be reshaped into it.
 2. **Upsert on a business key.** `INSERT ... ON CONFLICT (order_id) DO NOTHING` or
-   `DO UPDATE SET ...`. Requires a unique key that is stable across retries, which the producer
+  `DO UPDATE SET ...`. Requires a unique key that is stable across retries, which the producer
    must supply — `order_id`, not an auto-generated row id.
 3. **Conditional update with a version.** `UPDATE orders SET status=$1, version=$2
-   WHERE order_id=$3 AND version < $2`. Handles both duplicates and out-of-order delivery, which
+  WHERE order_id=$3 AND version < $2`. Handles both duplicates and out-of-order delivery, which
    makes it the strongest of the four. Requires a monotonic version in the record.
 4. **An explicit dedup table** keyed on `(topic, partition, offset)` or a producer-supplied event
-   id, consulted before processing. The fallback when the operation genuinely cannot be made
+  id, consulted before processing. The fallback when the operation genuinely cannot be made
    repeatable — an outbound email, a payment capture.
 
 **The part people get wrong: the dedup table's retention.** A dedup table needs a TTL or it grows
@@ -358,12 +383,14 @@ Twenty gigabytes is affordable; two hundred would change the design. The point i
 before committing to the approach rather than discovering it when the table stops fitting in
 memory.
 
-⚠️ **Deduplicating on `(topic, partition, offset)` breaks if the topic is ever repartitioned or
+⚠️ **Deduplicating on** `(topic, partition, offset)` **breaks if the topic is ever repartitioned or
 mirrored.** Offsets are not preserved across clusters (doc 09, `M-03`) and partition assignment
 changes with partition count (`D-07`). A producer-supplied event id is more work up front and
 survives both.
 
 ---
+
+
 
 ## Class D — ordering, lost quietly
 
@@ -401,14 +428,14 @@ consumer is lagging. Case study CS-6 in doc 11 is this incident.
 not a configuration change. The options, in order of preference:
 
 1. **Do not.** Size partition count for the topic's whole life (doc 08, `S-02`). Over-provisioning
-   partitions costs far less than this.
+  partitions costs far less than this.
 2. **Create a new topic** with the target partition count, dual-write or migrate consumers, and
-   retire the old one. More work, and it is correct.
+  retire the old one. More work, and it is correct.
 3. **Drain first.** Stop producers, let consumers reach the end of every partition, add
-   partitions, then resume. Correct, and it requires a write outage of however long draining
+  partitions, then resume. Correct, and it requires a write outage of however long draining
    takes.
 4. **Use a custom partitioner** whose mapping is stable under resize — consistent hashing, or an
-   explicit key-to-partition table. Worth it only if you know in advance you will resize
+  explicit key-to-partition table. Worth it only if you know in advance you will resize
    repeatedly.
 
 ⚠️ Note that Kafka will not warn you. `kafka-topics.sh --alter --partitions 48` succeeds
@@ -461,43 +488,49 @@ idempotence is much easier to guarantee in a distributed system than ordering.
 
 ---
 
+
+
 ## Choosing, in one table
 
-| Your situation | Use | Do not use |
-|---|---|---|
-| Kafka → Kafka, both in one cluster | Transactions, or Kafka Streams `exactly_once_v2` | An external dedup table you do not need |
-| Kafka → relational database | Offsets stored in the database, in the business transaction (`D-05`) | Kafka transactions — they do not cover the database |
-| Kafka → third-party API | At-least-once + the API's idempotency key | Any claim of exactly-once |
-| Kafka → object storage | At-least-once + deterministic object keys | A dedup table; the key is the dedup |
-| Ordering matters per entity | One key per entity, fixed partition count, retry in place | Retry topics, unkeyed records, partition resizes |
-| Ordering does not matter | Retry topics, parallel processing, resize freely | Paying for ordering you will not use |
+
+| Your situation                     | Use                                                                  | Do not use                                          |
+| ---------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------- |
+| Kafka → Kafka, both in one cluster | Transactions, or Kafka Streams `exactly_once_v2`                     | An external dedup table you do not need             |
+| Kafka → relational database        | Offsets stored in the database, in the business transaction (`D-05`) | Kafka transactions — they do not cover the database |
+| Kafka → third-party API            | At-least-once + the API's idempotency key                            | Any claim of exactly-once                           |
+| Kafka → object storage             | At-least-once + deterministic object keys                            | A dedup table; the key is the dedup                 |
+| Ordering matters per entity        | One key per entity, fixed partition count, retry in place            | Retry topics, unkeyed records, partition resizes    |
+| Ordering does not matter           | Retry topics, parallel processing, resize freely                     | Paying for ordering you will not use                |
+
 
 ---
+
+
 
 ## What to take away
 
 1. **There are only two orderings of process-and-commit,** and they give you at-most-once and
-   at-least-once. Exactly-once is what you get when they stop being two operations.
+  at-least-once. Exactly-once is what you get when they stop being two operations.
 2. **The test for exactly-once is one question:** can the side effect and the offset commit be
-   made atomic? Kafka transactions make it true for Kafka-to-Kafka; nothing makes it true for a
+  made atomic? Kafka transactions make it true for Kafka-to-Kafka; nothing makes it true for a
    third-party API.
 3. **Kafka transactions cover multiple partitions, multiple topics, and the offset commit — in
-   one cluster.** They cover no database, no HTTP call, and no second cluster.
-4. **`sendOffsetsToTransaction` is the line that makes it work,** and the input consumer must not
-   commit offsets itself.
-5. **A hanging transaction freezes `read_committed` consumers permanently** by pinning the last
-   stable offset, while every ordinary diagnostic stays green. `kafka-transactions.sh find-hanging`
+  one cluster.** They cover no database, no HTTP call, and no second cluster.
+4. `sendOffsetsToTransaction` **is the line that makes it work,** and the input consumer must not
+  commit offsets itself.
+5. **A hanging transaction freezes** `read_committed` **consumers permanently** by pinning the last
+  stable offset, while every ordinary diagnostic stays green. `kafka-transactions.sh find-hanging`
    is the only thing that finds it.
 6. **Design for duplicates even with transactions,** because operators replay topics and no
-   protocol protects you from that.
+  protocol protects you from that.
 7. **The outbox pattern is the real answer for database destinations:** store the offset in the
-   destination, in the business transaction.
+  destination, in the business transaction.
 8. **Size your dedup table's TTL from your largest plausible replay,** not from a round number.
-   For Riverbend that is six days and roughly 20 GB.
+  For Riverbend that is six days and roughly 20 GB.
 9. **Adding partitions to a keyed topic is a data migration.** Every key re-maps, and the old and
-   new records are processed concurrently by different consumers for the whole retention period.
+  new records are processed concurrently by different consumers for the whole retention period.
 10. **Retry topics and per-key ordering are incompatible.** If you need both, stop needing
-    ordering: version every event and apply conditionally, which converts an ordering problem into
+  ordering: version every event and apply conditionally, which converts an ordering problem into
     an idempotence problem you can actually solve.
 
 Next: [06-lag-backpressure-and-poison-messages.md](06-lag-backpressure-and-poison-messages.md),

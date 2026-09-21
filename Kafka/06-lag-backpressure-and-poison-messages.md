@@ -9,7 +9,7 @@ faster without giving up the guarantees from doc 05.
 
 **Consumer lag** for a partition is `logEndOffset − committedOffset`: how many records have been
 produced that this group has not yet committed. It is a *saturation* signal in the sense of the
-USE method — see [`Observability/02-the-use-method.md`](../Observability/02-the-use-method.md),
+USE method — see `[Observability/02-the-use-method.md](../Observability/02-the-use-method.md)`,
 which treats `order-processor`'s lag as exactly that.
 
 Here is why the raw number is not enough. Take a lag of 10,000,000 records on
@@ -69,27 +69,35 @@ After the sale — surplus is what is left over after keeping up with live traff
 most useful thing to internalise about lag, and it has two consequences worth acting on:
 
 - **Capacity must be sized for peak, not average**, or every peak leaves a recovery tail that
-  can outlast the peak by a factor of two or more.
+can outlast the peak by a factor of two or more.
 - **As capacity approaches arrival rate, drain time approaches infinity.** A group running at 95%
-  of arrival rate has 20× the drain time of one running at 50%. Headroom is not a luxury here;
-  it is what makes recovery finite.
+of arrival rate has 20× the drain time of one running at 50%. Headroom is not a luxury here;
+it is what makes recovery finite.
 
 Doc 10 turns both of these into alerts.
 
 ---
 
+
+
 ## Failure catalogue
 
-| Class | The question it answers | Scenarios |
-|---|---|---|
-| **A. The lag number is lying to you** | Is this lag real, and is it bad? | `L-01` … `L-03` |
-| **B. Consumption has stopped on one partition** | Everything else is fine. Why is this one stuck? | `L-04` … `L-05` |
-| **C. Going faster without breaking correctness** | How do I actually fix this? | `L-06` … `L-08` |
-| **D. Lag that damages the cluster** | Why did one lagging consumer slow down everyone? | `L-09` … `L-10` |
+
+| Class                                            | The question it answers                          | Scenarios       |
+| ------------------------------------------------ | ------------------------------------------------ | --------------- |
+| **A. The lag number is lying to you**            | Is this lag real, and is it bad?                 | `L-01` … `L-03` |
+| **B. Consumption has stopped on one partition**  | Everything else is fine. Why is this one stuck?  | `L-04` … `L-05` |
+| **C. Going faster without breaking correctness** | How do I actually fix this?                      | `L-06` … `L-08` |
+| **D. Lag that damages the cluster**              | Why did one lagging consumer slow down everyone? | `L-09` … `L-10` |
+
 
 ---
 
+
+
 ## Class A — the lag number is lying to you
+
+
 
 ### L-01 · A sum across partitions hides the one that is stuck
 
@@ -106,6 +114,7 @@ it is a specific, coherent slice. For `inventory.adjustments`, it is every SKU t
 that partition, and someone in the warehouse notices before your dashboard does.
 
 **Confirm it.** Always look at the maximum alongside the sum:
+
 ```promql
 # What you probably alert on
 sum(kafka_consumergroup_lag{consumergroup="order-processor-group"})
@@ -143,11 +152,13 @@ anyone hears about it.
 
 **Prevent.** Alert on **rate of change**, not on absolute lag, for any consumer with structurally
 non-zero lag:
+
 ```promql
 # Is the backlog growing, sustained? That is the real signal.
 deriv(sum(kafka_consumergroup_lag{consumergroup="analytics-sink-group"})[15m:]) > 0
   and sum(kafka_consumergroup_lag{consumergroup="analytics-sink-group"}) > 25000000
 ```
+
 Better still, have the consumer export its own health directly — for a batching sink, "seconds
 since last successful flush" is unambiguous, needs no threshold tuning, and cannot be confused by
 traffic shape.
@@ -165,16 +176,22 @@ where the producer is someone else's system — a partner feed, an upstream team
 change-data-capture connector that silently lost its replication slot.
 
 **Prevent.** Pair every lag alert with a **throughput floor** on the producing side:
+
 ```promql
 # No records produced to orders.created for 10 minutes during business hours
 sum(rate(kafka_server_brokertopicmetrics_messagesinpersec_total{topic="orders.created"}[10m])) == 0
 ```
+
 And on the consumer side, time-based lag (from the introduction) keeps climbing when a consumer
 is stuck, which record-based lag does not — another reason to export it.
 
 ---
 
+
+
 ## Class B — consumption has stopped on one partition
+
+
 
 ### L-04 · Head-of-line blocking from in-place retries
 
@@ -224,6 +241,7 @@ to use a byte-array deserialiser and deserialise inside your own code, where you
 or to configure an error-handling deserialiser that yields a null payload you can detect.
 
 **Confirm it.**
+
 ```bash
 # Where exactly is the group stuck?
 kafka-consumer-groups.sh --bootstrap-server $BS --describe --group order-processor-group \
@@ -238,17 +256,11 @@ kafka-console-consumer.sh --bootstrap-server $BS --topic orders.created \
 **Recover.** Three options, in the order you should consider them:
 
 1. **Fix the consumer** if the record is valid and the code is wrong. Deploy and it drains. This
-   is the only option that does not lose anything.
+  is the only option that does not lose anything.
 2. **Route it to the dead-letter queue** and advance. This is what `orders.created.dlq` is for,
-   and it should already be automatic (`L-08`).
+  and it should already be automatic (`L-08`).
 3. **Skip it manually** if there is no DLQ path. This loses the record, so record what you
-   skipped:
-   ```bash
-   # The group must be stopped — no active members — for a reset
-   kafka-consumer-groups.sh --bootstrap-server $BS --group order-processor-group \
-     --reset-offsets --topic orders.created:7 --to-offset 8412902 --dry-run
-   # then --execute
-   ```
+  skipped:
 
 **Prevent.** Every consumer that processes records it does not fully control needs a terminal
 path: after N attempts, publish to a DLQ with the original record, the error, and the source
@@ -258,7 +270,11 @@ three in the morning.
 
 ---
 
+
+
 ## Class C — going faster without breaking correctness
+
+
 
 ### L-06 · Parallel processing inside the consumer, done safely
 
@@ -311,14 +327,14 @@ while (running) {
 }
 ```
 
-⚠️ The subtlety that makes this safe is that **`poll()` is still called on every loop iteration**,
+⚠️ The subtlety that makes this safe is that `poll()` **is still called on every loop iteration**,
 even when everything is paused. `poll()` on a fully paused consumer returns no records and still
 sends heartbeats and processes rebalances, which is what keeps `max.poll.interval.ms` from
 evicting the member. A design that blocks instead of pausing reintroduces `C-01`.
 
 A complete, race-tested implementation of this pattern — the watermark tracker, the bounded pool,
 the adaptive downstream limiter, and graceful shutdown — is in
-[`goQuestions/q1/reference_impl`](../goQuestions/q1/reference_impl) in this repository. The parts
+`[goQuestions/q1/reference_impl](../goQuestions/q1/reference_impl)` in this repository. The parts
 that are easy to get wrong are the offset tracker and the shutdown ordering, and both are covered
 there with tests.
 
@@ -343,13 +359,13 @@ counted at design time:
 
 1. **Ordering is gone** for anything routed through them (doc 05, `D-09`).
 2. **Each tier is a topic with partitions, consumers, and monitoring.** A three-tier retry ladder
-   turns one pipeline into four, and the retry tiers are the ones with no dashboard.
+  turns one pipeline into four, and the retry tiers are the ones with no dashboard.
 3. **A downstream outage floods them.** If the scoring API is down for ten minutes, every record
-   in that window goes to the retry tier, and the retry tier's consumer hits the same outage. You
+  in that window goes to the retry tier, and the retry tier's consumer hits the same outage. You
    have moved the backlog, not reduced it — with the difference that it is now in a topic nobody
    alerts on.
 4. **Delayed consumption is awkward to implement.** The common approach — consume, check the
-   timestamp, and `sleep` until the record is due — blocks the partition and reintroduces
+  timestamp, and `sleep` until the record is due — blocks the partition and reintroduces
    head-of-line blocking inside the retry tier. The correct approach is to `pause()` the partition
    and `seek()` back to it later, which is more code than anyone expects.
 
@@ -373,21 +389,25 @@ Deferred forever, it is data loss with extra steps.
 to be forgotten:
 
 1. **An alert on non-zero depth**, with a named owner. Not on a threshold — on *any* record. A
-   DLQ should normally be empty, which makes "empty" a usable alert condition and removes all
+  DLQ should normally be empty, which makes "empty" a usable alert condition and removes all
    threshold tuning.
 2. **Enough context to act.** Publish the original key and value, plus headers carrying the source
-   topic, partition, offset, the exception, and the timestamp of the final attempt. A DLQ record
+  topic, partition, offset, the exception, and the timestamp of the final attempt. A DLQ record
    without its origin cannot be investigated, and it certainly cannot be replayed.
 3. **A replay path** that has been tested. Reprocessing a DLQ record must be a routine operation,
-   not an improvisation. It usually means a small tool that reads the DLQ and re-publishes to the
+  not an improvisation. It usually means a small tool that reads the DLQ and re-publishes to the
    source topic, and it depends on consumers being idempotent (doc 05, `D-06`).
 4. **Retention at least as long as your incident response.** `orders.created.dlq` keeps 14 days;
-   a 7-day retention on a DLQ means a record that arrives on a Friday before a holiday can expire
+  a 7-day retention on a DLQ means a record that arrives on a Friday before a holiday can expire
    before anyone triages it.
 
 ---
 
+
+
 ## Class D — lag that damages the cluster
+
+
 
 ### L-09 · One lagging consumer degrades everyone
 
@@ -421,6 +441,7 @@ read-only, it uses a separate consumer group, and it touches no production code 
 streams hundreds of gigabytes of cold data through a shared 24 GiB cache.
 
 **Confirm it.**
+
 ```promql
 # The signal: physical reads on brokers, which should normally be near zero
 rate(node_disk_read_bytes_total{instance=~"kafka-.*"}[5m])
@@ -428,10 +449,12 @@ rate(node_disk_read_bytes_total{instance=~"kafka-.*"}[5m])
 # Who is reading old data? Compare lag in time across groups.
 max(kafka_consumer_lag_seconds) by (consumergroup)
 ```
+
 If disk reads correlate with one group's lag, you have found it.
 
 **Recover.** Throttle or pause the offending consumer. Kafka supports client quotas, which is the
 durable fix rather than asking a team to stop:
+
 ```bash
 kafka-configs.sh --bootstrap-server $BS --alter \
   --add-config 'consumer_byte_rate=20971520' \
@@ -441,14 +464,16 @@ kafka-configs.sh --bootstrap-server $BS --alter \
 **Prevent.**
 
 - **Client quotas on every batch and backfill consumer**, set by default rather than added after
-  an incident.
+an incident.
 - **Alert on broker disk read throughput.** It is near zero in a healthy Kafka cluster, which
-  makes it an unusually clean signal — any sustained non-zero value means someone is reading cold
-  data.
+makes it an unusually clean signal — any sustained non-zero value means someone is reading cold
+data.
 - **Consider a separate cluster for replay-heavy workloads,** or read from a tiered-storage tier
-  where available, so that historical reads do not share a page cache with live traffic.
+where available, so that historical reads do not share a page cache with live traffic.
 - Keep the derived residency number on the capacity dashboard, and recompute it when instance
-  types or traffic change. It moves, and nobody notices when it does.
+types or traffic change. It moves, and nobody notices when it does.
+
+
 
 ### L-10 · Scaling the consumer did nothing
 
@@ -457,13 +482,15 @@ kafka-configs.sh --bootstrap-server $BS --alter \
 **Mechanism.** There are five distinct reasons, and the diagnosis matters because the fixes are
 unrelated:
 
-| Reason | Signal | Fix | Covered in |
-|---|---|---|---|
-| More members than partitions | Members with zero partitions assigned | Add partitions (carefully) | doc 04, `C-11` |
-| Key skew — one partition has the work | One partition's lag dominates | Salt the key, or aggregate | doc 03, `P-10` |
-| The downstream is the bottleneck | Consumer CPU low, downstream latency high | Fix or scale the downstream | this doc, `L-06` |
-| Rebalance storm — the group never stabilises | High rebalance rate | `max.poll.records` arithmetic | doc 04, `C-01` |
-| A stuck partition, not a slow one | One partition's lag grows linearly | Poison message | this doc, `L-05` |
+
+| Reason                                       | Signal                                    | Fix                           | Covered in       |
+| -------------------------------------------- | ----------------------------------------- | ----------------------------- | ---------------- |
+| More members than partitions                 | Members with zero partitions assigned     | Add partitions (carefully)    | doc 04, `C-11`   |
+| Key skew — one partition has the work        | One partition's lag dominates             | Salt the key, or aggregate    | doc 03, `P-10`   |
+| The downstream is the bottleneck             | Consumer CPU low, downstream latency high | Fix or scale the downstream   | this doc, `L-06` |
+| Rebalance storm — the group never stabilises | High rebalance rate                       | `max.poll.records` arithmetic | doc 04, `C-01`   |
+| A stuck partition, not a slow one            | One partition's lag grows linearly        | Poison message                | this doc, `L-05` |
+
 
 ⚠️ Adding pods makes two of these five actively **worse**. More members means more rebalances,
 which deepens a rebalance storm, and more members means more concurrent load on a downstream that
@@ -476,31 +503,33 @@ means skew, one linearly-growing partition means stuck.
 
 ---
 
+
+
 ## What to take away
 
 1. **Lag in records is not comparable across time of day.** Ten million records is two minutes at
-   peak and twenty-one minutes at three in the morning. Export lag in **time**, computed in the
+  peak and twenty-one minutes at three in the morning. Export lag in **time**, computed in the
    consumer from the record timestamp.
 2. **Drain time = lag ÷ (capacity − arrival rate).** A twenty-minute Riverbend flash sale produces
-   a forty-nine-minute recovery, and as capacity approaches arrival, recovery time approaches
+  a forty-nine-minute recovery, and as capacity approaches arrival, recovery time approaches
    infinity.
 3. **Alert on per-partition maximum, not on the group sum.** The sum answers a capacity question;
-   the maximum answers whether something is broken.
+  the maximum answers whether something is broken.
 4. **For consumers with structural lag, alert on the derivative,** or have the consumer export its
-   own health directly.
+  own health directly.
 5. **Zero lag can mean nothing is being produced.** Pair every lag alert with a throughput floor
-   on the producer side.
+  on the producer side.
 6. **Head-of-line blocking is the price of ordering.** Bound it deliberately: derive the retry
-   budget from how much delay the records behind it can tolerate.
+  budget from how much delay the records behind it can tolerate.
 7. **Every consumer needs a terminal path for a poison message,** and deserialisation failures
-   need special handling because they happen inside `poll()` before your code can catch them.
+  need special handling because they happen inside `poll()` before your code can catch them.
 8. **Concurrent processing inside a consumer needs three things:** commit only the contiguous
-   completed prefix, bound the pool and `pause()` when it is full, and shard by key if ordering
+  completed prefix, bound the pool and `pause()` when it is full, and shard by key if ordering
    matters.
 9. **A dead-letter queue without an alert, context, a tested replay path, and generous retention
-   is a place where data is forgotten.**
+  is a place where data is forgotten.**
 10. **One lagging consumer can degrade the entire cluster** by evicting the page cache. Broker
-    disk read throughput is near zero when healthy, which makes it one of the cleanest alerts you
+  disk read throughput is near zero when healthy, which makes it one of the cleanest alerts you
     can have.
 
 Next: [07-retention-compaction-and-schema.md](07-retention-compaction-and-schema.md), which covers

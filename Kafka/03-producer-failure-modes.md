@@ -303,9 +303,7 @@ kafka-console-consumer.sh --bootstrap-server $BS --topic orders.created \
   --property print.key=true --property print.offset=true --property print.timestamp=true
 ```
 
-**Prevent.** The idempotent producer eliminates this specific duplicate (`P-06`). Idempotent
-consumers eliminate the rest (doc 05). You need both, and the second matters more, because
-idempotence on the producer does not survive a producer restart.
+**Prevent.** The idempotent producer eliminates this specific duplicate (`P-06`). Idempotent consumers eliminate the rest (doc 05). You need both, and the second matters more, because **idempotence on the producer does not survive a producer restart.[IMPORTANT]**
 
 ### P-06 · The idempotent producer, and exactly where it stops helping
 

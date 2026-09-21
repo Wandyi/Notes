@@ -43,6 +43,8 @@ sequenceDiagram
     Note over M1,M2: onPartitionsAssigned, then resume polling
 ```
 
+
+
 Two properties of this diagram cause most of the pain.
 
 **There is a barrier.** The coordinator will not proceed until every known member has sent
@@ -67,11 +69,13 @@ cooperative rebalancing and are not. `C-02` covers how to actually switch.
 This is the highest-value table in the doc. The settings sound interchangeable and detect
 completely different failures.
 
-| Setting | Default | Detects | Enforced by |
-|---|---|---|---|
-| `session.timeout.ms` | 45,000 | **The process died.** No heartbeat received. | A background heartbeat thread |
-| `heartbeat.interval.ms` | 3,000 | — (how often the background thread heartbeats) | Should be ≤ ⅓ of session timeout |
-| `max.poll.interval.ms` | 300,000 | **The process is alive but stopped consuming.** No `poll()` call. | The application thread |
+
+| Setting                 | Default | Detects                                                           | Enforced by                      |
+| ----------------------- | ------- | ----------------------------------------------------------------- | -------------------------------- |
+| `session.timeout.ms`    | 45,000  | **The process died.** No heartbeat received.                      | A background heartbeat thread    |
+| `heartbeat.interval.ms` | 3,000   | — (how often the background thread heartbeats)                    | Should be ≤ ⅓ of session timeout |
+| `max.poll.interval.ms`  | 300,000 | **The process is alive but stopped consuming.** No `poll()` call. | The application thread           |
+
 
 Since Kafka 0.10.1 (KIP-62), heartbeats are sent from a **background thread**, separate from your
 processing loop. This decoupling is why the two timeouts exist: the heartbeat thread keeps saying
@@ -80,7 +84,7 @@ processing loop. This decoupling is why the two timeouts exist: the heartbeat th
 catch that case — the consumer is alive but not making progress, so its partitions should go to
 somebody else.
 
-⚠️ The practical consequence: **raising `session.timeout.ms` does nothing for a slow consumer.**
+⚠️ The practical consequence: **raising** `session.timeout.ms` **does nothing for a slow consumer.**
 People reach for it because the error message mentions the group, and the setting they actually
 need is `max.poll.interval.ms` or `max.poll.records`. This mistake is so common that it is worth
 checking first whenever someone reports "we tuned the timeout and it did not help."
@@ -99,17 +103,25 @@ cluster creation, and doc 08 (`S-07`) covers when 50 stops being enough.
 
 ---
 
+
+
 ## Failure catalogue
 
-| Class | The question it answers | Scenarios |
-|---|---|---|
-| **A. The group cannot stabilise** | Why does it keep rebalancing? | `C-01` … `C-05` |
-| **B. Offsets are wrong** | The group is stable. Why is the data wrong? | `C-06` … `C-10` |
+
+| Class                                  | The question it answers                        | Scenarios       |
+| -------------------------------------- | ---------------------------------------------- | --------------- |
+| **A. The group cannot stabilise**      | Why does it keep rebalancing?                  | `C-01` … `C-05` |
+| **B. Offsets are wrong**               | The group is stable. Why is the data wrong?    | `C-06` … `C-10` |
 | **C. The group looks fine and is not** | Everything is green. Why is nothing happening? | `C-11` … `C-13` |
+
 
 ---
 
+
+
 ## Class A — the group cannot stabilise
+
+
 
 ### C-01 · Rebalance storm from `max.poll.interval.ms`
 
@@ -144,21 +156,23 @@ Then it gets worse, because the failure is self-amplifying:
 
 1. Member 3 is evicted. Its 4 partitions are redistributed across the remaining 5 members.
 2. Those members now own 4.8 partitions each instead of 4. More partitions means more records
-   available per poll, so batches get *fuller* and processing gets *slower*.
+  available per poll, so batches get *fuller* and processing gets *slower*.
 3. The next member exceeds the interval and is evicted. Four members now hold 6 partitions each.
 4. Meanwhile, member 3 finishes its batch, tries to commit, gets `CommitFailedException`
-   (`C-08`), rejoins, and triggers another rebalance.
+  (`C-08`), rejoins, and triggers another rebalance.
 
 The group converges on a state where it spends more time rebalancing than consuming. This is a
 **rebalance storm**, and left alone it does not recover, because the condition that causes
 eviction gets stronger with every eviction.
 
 **Confirm it.**
+
 ```bash
 # Is the group ever stable? Repeat this a few times.
 kafka-consumer-groups.sh --bootstrap-server $BS --describe --group fraud-scorer-group --state
 # STATE: PreparingRebalance or CompletingRebalance on repeated checks = storm
 ```
+
 ```promql
 # Rebalance rate. Anything sustained above roughly one per hour deserves investigation.
 rate(kafka_consumer_coordinator_rebalance_total[5m]) * 3600
@@ -185,17 +199,19 @@ Half, not just under, because the worst case you measured is not the worst case 
 
 **Prevent.** In order of preference:
 
-1. **Right-size `max.poll.records`** from the arithmetic above. It costs nothing and it is the
-   fix that works.
-2. **Raise `max.poll.interval.ms`** only if the per-record time is genuinely irreducible. The
-   cost is that a genuinely stuck consumer now holds its partitions for that much longer, so you
+1. **Right-size** `max.poll.records` from the arithmetic above. It costs nothing and it is the
+  fix that works.
+2. **Raise** `max.poll.interval.ms` only if the per-record time is genuinely irreducible. The
+  cost is that a genuinely stuck consumer now holds its partitions for that much longer, so you
    are trading detection time for tolerance.
 3. **Decouple processing from polling.** Hand records to a bounded internal worker pool and keep
-   polling; pause partitions when the pool is full. This is the right architecture for
+  polling; pause partitions when the pool is full. This is the right architecture for
    `fraud-scorer-group`, and doc 06 (`L-06`) covers it — including the offset-tracking that makes
    it safe, which is the part people get wrong.
-4. **Alert on `rebalance_total`,** not only on lag. A storm shows up in rebalance rate ten
-   minutes before it shows up as lag anyone notices.
+4. **Alert on** `rebalance_total`**,** not only on lag. A storm shows up in rebalance rate ten
+  minutes before it shows up as lag anyone notices.
+
+
 
 ### C-02 · A rolling restart that costs 80 rebalances
 
@@ -242,6 +258,7 @@ Phase 1 — deploy with both, in this order. The group still uses RangeAssignor.
 Phase 2 — only after every member is on phase 1, deploy with only the cooperative one.
     partition.assignment.strategy = org.apache.kafka.clients.consumer.CooperativeStickyAssignor
 ```
+
 Doing it in one step makes members unable to agree, and the group will not form.
 
 **Second, use static membership** so a restart does not trigger a rebalance at all. Give each
@@ -278,14 +295,15 @@ it returns from `poll()` and runs its revocation callback. So the group's rebala
 Two things commonly make one member slow to rejoin:
 
 - **A long processing batch** — the `C-01` arithmetic, but not yet long enough to trigger
-  eviction. A member that takes 90 seconds per batch adds 90 seconds to every rebalance the group
-  performs, whoever triggered it.
-- **A slow `onPartitionsRevoked` callback.** This runs before JoinGroup, and it typically commits
-  offsets and flushes state. If it flushes a large in-memory aggregate to a database, that
-  flush is on the critical path of every other member's rebalance.
+eviction. A member that takes 90 seconds per batch adds 90 seconds to every rebalance the group
+performs, whoever triggered it.
+- **A slow** `onPartitionsRevoked` **callback.** This runs before JoinGroup, and it typically commits
+offsets and flushes state. If it flushes a large in-memory aggregate to a database, that
+flush is on the critical path of every other member's rebalance.
 
 **Confirm it.** Compare `rebalance_latency_avg` across members; the one with a much larger value
 is the one everyone is waiting for.
+
 ```promql
 max(kafka_consumer_coordinator_rebalance_latency_avg) by (pod)
 ```
@@ -311,6 +329,7 @@ running both versions with the same ids, or a StatefulSet pod that was replaced 
 was still terminating.
 
 **Confirm it.**
+
 ```bash
 kafka-consumer-groups.sh --bootstrap-server $BS --describe --group clickstream-rollup-group \
   --members --verbose
@@ -341,7 +360,11 @@ needed, anchor it tightly (`^catalog\.(changes|snapshots)$` rather than `catalog
 
 ---
 
+
+
 ## Class B — offsets are wrong
+
+
 
 ### C-06 and C-07 · `enable.auto.commit`, which loses records *and* duplicates them
 
@@ -350,18 +373,18 @@ records processed twice after a crash (duplicates). Both, from the same setting,
 timing.
 
 **Mechanism.** `enable.auto.commit=true` is the **default**, with `auto.commit.interval.ms=5000`.
-The commit does not happen on a timer thread; it happens **inside `poll()`**, and it commits the
-position *after the last record the previous `poll()` returned*.
+The commit does not happen on a timer thread; it happens **inside** `poll()`, and it commits the
+position *after the last record the previous* `poll()` *returned*.
 
 Trace it for a loss:
 
 1. `poll()` returns records at offsets 1,000–1,499.
 2. Your loop processes 1,000 through 1,199 and writes them to `orders-db`.
 3. Five seconds have elapsed, so your code calls `poll()` again. **`poll()` first commits offset
-   1,500** — because that is the position after the batch it handed you.
+  1,500** — because that is the position after the batch it handed you.
 4. The pod is evicted before processing 1,200–1,499.
 5. The replacement member starts at 1,500. **Three hundred orders were never processed and never
-   will be.**
+  will be.**
 
 And for a duplicate: process all 500, crash before the next `poll()`, and the committed offset is
 still 1,000, so all 500 are reprocessed.
@@ -422,13 +445,15 @@ have double-written them.
 **Recover and prevent.** Fix the underlying `C-01`. Additionally:
 
 - Implement `ConsumerRebalanceListener.onPartitionsRevoked` to commit before giving up partitions,
-  so an orderly rebalance does not lose progress.
-- ⚠️ Also implement **`onPartitionsLost`** separately. It is called when the member was fenced and
-  can no longer commit, and its default implementation delegates to `onPartitionsRevoked` — so a
-  revocation handler that commits will throw again from inside the handler. `onPartitionsLost`
-  should discard in-flight work, not commit it.
+so an orderly rebalance does not lose progress.
+- ⚠️ Also implement `onPartitionsLost` separately. It is called when the member was fenced and
+can no longer commit, and its default implementation delegates to `onPartitionsRevoked` — so a
+revocation handler that commits will throw again from inside the handler. `onPartitionsLost`
+should discard in-flight work, not commit it.
 - Make processing idempotent so the overlap is harmless. That is the only defence that works
-  under all timings.
+under all timings.
+
+
 
 ### C-09 · Offsets expired while the group was idle
 
@@ -451,6 +476,7 @@ Which still happens regularly — a consumer scaled to zero over a holiday, a se
 during an incident and re-enabled nine days later, a seasonal pipeline that runs quarterly.
 
 **Confirm it.** Before restarting a long-idle consumer, check whether its offsets still exist:
+
 ```bash
 kafka-consumer-groups.sh --bootstrap-server $BS --describe --group settlement-group
 # "Consumer group 'settlement-group' has no active members" plus CURRENT-OFFSET values = offsets survive
@@ -459,6 +485,7 @@ kafka-consumer-groups.sh --bootstrap-server $BS --describe --group settlement-gr
 
 **Recover.** If the offsets are gone and you know roughly where the group should be, reset by
 time rather than guessing:
+
 ```bash
 kafka-consumer-groups.sh --bootstrap-server $BS --group settlement-group \
   --reset-offsets --to-datetime 2026-09-12T00:00:00.000 --topic payments.settled --dry-run
@@ -478,11 +505,13 @@ incident boundary.
 offset** — either none at all (a new group) or one that is out of range. It has three values and
 both common ones fail badly in one direction:
 
-| Value | On an invalid offset | Failure mode |
-|---|---|---|
-| `latest` (**default**) | Jump to the end | **Silently skips** everything between the lost offset and now |
-| `earliest` | Jump to the start of retention | **Silently reprocesses** everything retained — for `clickstream.events`, 2.9 billion records |
-| `none` | Throw `NoOffsetForPartitionException` | The consumer fails to start, and a human decides |
+
+| Value                  | On an invalid offset                  | Failure mode                                                                                 |
+| ---------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `latest` (**default**) | Jump to the end                       | **Silently skips** everything between the lost offset and now                                |
+| `earliest`             | Jump to the start of retention        | **Silently reprocesses** everything retained — for `clickstream.events`, 2.9 billion records |
+| `none`                 | Throw `NoOffsetForPartitionException` | The consumer fails to start, and a human decides                                             |
+
 
 Three situations produce an invalid offset, and all three are incident-adjacent: retention
 deleted the data the offset pointed at while the consumer was down (doc 07, `T-01`); an unclean
@@ -493,7 +522,7 @@ So the default behaviour is: *at the exact moment something went wrong, silently
 was missed and carry on as though nothing happened.* For `order-processor`, that means orders
 that are in `orders.created` and never reach `orders-db`, discovered at month-end reconciliation.
 
-**Prevent.** For any consumer where a gap matters, set **`auto.offset.reset=none`** and handle
+**Prevent.** For any consumer where a gap matters, set `auto.offset.reset=none` and handle
 `NoOffsetForPartitionException` by failing to start. A consumer that refuses to start is a page.
 A consumer that silently skips six hours of orders is a finance incident three weeks later, and
 the first is much cheaper.
@@ -503,16 +532,22 @@ correct, because "where should a new consumer start" is a decision, not a defaul
 
 Riverbend's settings, as an illustration of choosing per consumer:
 
-| Group | `auto.offset.reset` | Reasoning |
-|---|---|---|
-| `order-processor-group` | `none` | A gap is a lost order. Fail loudly. |
-| `settlement-group` | `none` | Money. |
-| `search-indexer-group` | `earliest` | The index is rebuildable, and reprocessing a compacted topic is cheap and correct. |
-| `clickstream-rollup-group` | `latest` | Reprocessing 2.9 billion events to recover a gap costs more than the gap. |
+
+| Group                      | `auto.offset.reset` | Reasoning                                                                          |
+| -------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
+| `order-processor-group`    | `none`              | A gap is a lost order. Fail loudly.                                                |
+| `settlement-group`         | `none`              | Money.                                                                             |
+| `search-indexer-group`     | `earliest`          | The index is rebuildable, and reprocessing a compacted topic is cheap and correct. |
+| `clickstream-rollup-group` | `latest`            | Reprocessing 2.9 billion events to recover a gap costs more than the gap.          |
+
 
 ---
 
+
+
 ## Class C — the group looks fine and is not
+
+
 
 ### C-11 · More consumers than partitions
 
@@ -528,6 +563,7 @@ This is the most common reason scaling a consumer does nothing, and the second m
 `P-10` (key skew), where scaling does nothing because one partition has all the work.
 
 **Confirm it.**
+
 ```bash
 kafka-consumer-groups.sh --bootstrap-server $BS --describe --group order-processor-group --members
 # Members with 0 partitions are idle
@@ -552,17 +588,18 @@ their coordinator. Groups stuck in `PreparingRebalance` with no obvious cause.
 group depends on it, its failures are cluster-wide:
 
 - **Its partitions can be under-replicated or offline** like any other. A group whose coordinator
-  partition is offline cannot commit or rebalance at all, while groups on other partitions are
-  unaffected — which produces the confusing symptom of "some groups are broken."
+partition is offline cannot commit or rebalance at all, while groups on other partitions are
+unaffected — which produces the confusing symptom of "some groups are broken."
 - **It is compacted, so it depends on the log cleaner.** If the cleaner dies (doc 07, `T-08`),
-  `__consumer_offsets` grows without bound. On a cluster with many groups committing frequently
-  this is the fastest-growing topic you have, and it will fill disks.
-- **`offsets.topic.replication.factor`** is applied when the topic is auto-created on first use.
-  ⚠️ If the cluster had fewer brokers than the configured factor at that moment — a common state
-  during initial provisioning — creation fails or produces a lower factor that persists forever.
-  A cluster whose `__consumer_offsets` has RF=1 loses every group's offsets when one broker dies.
+`__consumer_offsets` grows without bound. On a cluster with many groups committing frequently
+this is the fastest-growing topic you have, and it will fill disks.
+- `offsets.topic.replication.factor` is applied when the topic is auto-created on first use.
+⚠️ If the cluster had fewer brokers than the configured factor at that moment — a common state
+during initial provisioning — creation fails or produces a lower factor that persists forever.
+A cluster whose `__consumer_offsets` has RF=1 loses every group's offsets when one broker dies.
 
 **Confirm it.**
+
 ```bash
 kafka-topics.sh --bootstrap-server $BS --describe --topic __consumer_offsets \
   | head -3
@@ -584,7 +621,7 @@ records it fetched before the revocation, and it does not know it no longer owns
 it will not find out until it next calls `poll()`.
 
 For the duration, **two members are processing the same records**. Kafka does not prevent this,
-and it cannot: the broker has no way to interrupt your application thread.
+and it cannot: the ++***broker has no way to interrupt your application thread.***++
 
 This is why "exactly-once" is not achievable by consumer configuration alone. The consumer
 protocol guarantees exclusive *assignment*, not exclusive *execution*.
@@ -592,10 +629,10 @@ protocol guarantees exclusive *assignment*, not exclusive *execution*.
 **Prevent.** There are only two real defences and you should use both:
 
 1. **Idempotent processing**, keyed on something stable — `(topic, partition, offset)` or a
-   business identifier — so a concurrent duplicate is harmless. This is the general answer and
+  business identifier — so a concurrent duplicate is harmless. This is the general answer and
    doc 05 covers it in detail.
 2. **Fencing at the destination.** If the write target supports conditional writes, carry the
-   rebalance generation or a monotonic token and reject writes from a stale one. Kafka
+  rebalance generation or a monotonic token and reject writes from a stale one. Kafka
    transactions do exactly this for Kafka-to-Kafka pipelines (doc 05, `D-03`); for
    Kafka-to-database you implement it yourself, usually as a version column.
 
@@ -603,6 +640,8 @@ Shortening processing time reduces the window but never closes it. Treat the ove
 permanent and design for it.
 
 ---
+
+
 
 ## What is changing: KIP-848
 
@@ -618,11 +657,11 @@ What that fixes:
 
 - **No barrier**, so `C-03` — one slow member stalling the group — largely goes away.
 - **Rebalances are incremental by default**, so the eager/cooperative migration dance in `C-02` is
-  unnecessary.
-- **`session.timeout.ms` and the assignment strategy move to the broker**, so a fleet cannot
-  disagree about them.
-- `max.poll.interval.ms` still exists and still evicts slow consumers, so **`C-01` does not go
-  away** — the arithmetic in that scenario is unchanged and you still need to do it.
+unnecessary.
+- `session.timeout.ms` **and the assignment strategy move to the broker**, so a fleet cannot
+disagree about them.
+- `max.poll.interval.ms` still exists and still evicts slow consumers, so `C-01` **does not go
+away** — the arithmetic in that scenario is unchanged and you still need to do it.
 
 Adopting it is a client-side opt-in (`group.protocol=consumer`) and requires client libraries
 built for it. Plan it as a deliberate migration once you are on 4.0, and do not expect it to
@@ -630,31 +669,33 @@ rescue a consumer that is too slow — that remains your problem.
 
 ---
 
+
+
 ## What to take away
 
 1. **Two timeouts, two different failures.** `session.timeout.ms` detects a dead process;
-   `max.poll.interval.ms` detects a live process that stopped consuming. Raising the first does
+  `max.poll.interval.ms` detects a live process that stopped consuming. Raising the first does
    nothing for a slow consumer, and reaching for it is the most common wrong move.
-2. **Do the `max.poll.records` arithmetic.** `max.poll.records × worst-case-per-record` must be
-   under half of `max.poll.interval.ms`. For `fraud-scorer-group` the default configuration
+2. **Do the** `max.poll.records` **arithmetic.** `max.poll.records × worst-case-per-record` must be
+  under half of `max.poll.interval.ms`. For `fraud-scorer-group` the default configuration
    guaranteed eviction, by a factor of two.
 3. **Rebalance storms amplify themselves.** Every eviction gives the survivors more partitions,
-   which makes the next eviction more likely. They do not self-recover.
+  which makes the next eviction more likely. They do not self-recover.
 4. **The default assignor is eager, despite the default list containing a cooperative one.**
-   Switching is a two-phase rolling upgrade and cannot be done in a single deploy.
+  Switching is a two-phase rolling upgrade and cannot be done in a single deploy.
 5. **Static membership makes a rolling restart cost zero rebalances** instead of two per pod. It
-   requires genuinely stable identities — a StatefulSet, not a Deployment.
+  requires genuinely stable identities — a StatefulSet, not a Deployment.
 6. **Auto-commit implements neither at-least-once nor at-most-once.** It commits offsets for
-   records you may not have processed, inside `poll()`. Turn it off and commit after processing.
-7. **`auto.offset.reset=latest` silently skips data at the exact moment something went wrong.**
-   For consumers where a gap matters, use `none` and fail to start.
+  records you may not have processed, inside `poll()`. Turn it off and commit after processing.
+7. `auto.offset.reset=latest` **silently skips data at the exact moment something went wrong.**
+  For consumers where a gap matters, use `none` and fail to start.
 8. **Partition count is a hard ceiling on consumer parallelism.** Extra members sit idle, and
-   adding partitions to a keyed topic breaks per-key ordering.
+  adding partitions to a keyed topic breaks per-key ordering.
 9. **Assignment is exclusive; execution is not.** A revoked member keeps working until its next
-   `poll()`, so two members can process the same records. Only idempotence and destination-side
+  `poll()`, so two members can process the same records. Only idempotence and destination-side
    fencing close that.
-10. **`__consumer_offsets` is a topic with all the failure modes of a topic,** and every group
-    depends on it. Do not exclude internal topics from your monitoring.
+10. `__consumer_offsets` **is a topic with all the failure modes of a topic,** and every group
+  depends on it. Do not exclude internal topics from your monitoring.
 
 Next: [05-delivery-semantics-and-ordering.md](05-delivery-semantics-and-ordering.md), which takes
 the duplicates and reordering this doc kept deferring and asks what guarantees are actually
