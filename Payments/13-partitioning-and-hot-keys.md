@@ -65,8 +65,12 @@ distribution:
 | Remaining | 39,900 | 39% |
 
 The largest merchant alone is 11% of 9,000 peak transactions per second, which is **990
-authorizations per second on one merchant id**, and about 10,800 ledger entries per second against
-**one account**: `merchant_payable:top_merchant`.
+authorizations per second on one merchant id**. At document 08's eleven ledger entries per payment
+lifecycle, that is about **10,900 ledger entries per second landing on one shard**.
+
+Of those entries, the ones that hit the single account `merchant_payable:top_merchant` are roughly
+one per captured payment — so 990 authorizations × 87.3% approved × 96% captured ≈ **830 writes per
+second against one account**, rising with refunds, disputes and payouts to something near 950.
 
 A naive merchant-id hash puts all of that on one shard, and that shard is now carrying eleven times
 the average load. Three techniques, applied together.
@@ -74,20 +78,26 @@ the average load. Three techniques, applied together.
 ### Technique one: append-only writes remove the contention
 
 Document 08's design already solves most of this, and it is worth making the connection explicit.
-A single mutable balance row would be the bottleneck: 10,800 updates per second to one row
-serialise on that row's lock, and no database does that. PostgreSQL would manage perhaps a few
-thousand per second on a single hot row before lock contention dominates.
 
-Append-only entries have no such contention. 10,800 inserts per second into a partitioned table,
-distributed across the index by time, is a workload a single well-provisioned PostgreSQL instance
-handles. **The ledger design chosen for auditability turns out to be the design required for
-scale**, which is a happy coincidence worth noticing rather than rediscovering.
+A single mutable balance row would be the bottleneck. Those 950 writes per second would all
+serialise on one row's lock. PostgreSQL manages on the order of one to three thousand updates per
+second against a single hot row before lock contention dominates, which means 950 is not
+impossible — it is *marginal*, and that is worse than impossible. It works in testing, it works at
+average load, and it falls over during the one event per year that matters, because the 237× peak
+ratio leaves no headroom at all above a figure already inside the contention band. A design whose
+margin disappears precisely at peak is a design that has not been sized.
 
-The balance read is then served from a snapshot plus a tail, and for the hot merchant the tail is
-large — 10,800 entries per second means a snapshot an hour old has 38 million entries after it. So
-the hot merchant's snapshot cadence is different: Northwind Pay snapshots the top 100 merchants
-every 60 seconds rather than daily, keeping the tail to roughly 650,000 entries, and the top
-merchant every 10 seconds.
+Append-only entries have no such contention: there is no row to lock. 10,900 inserts per second
+into a table partitioned by time is a workload a single well-provisioned PostgreSQL instance
+handles comfortably. **The ledger design chosen for auditability turns out to be the design
+required for scale**, which is a coincidence worth noticing rather than rediscovering the hard way.
+
+The balance read is then served from a snapshot plus a tail, and for the hot merchant the tail
+grows fast — 950 entries per second against the payable account means a snapshot an hour old has
+about 3.4 million entries after it, which is no longer a cheap read. So the hot merchant's snapshot
+cadence is different: Northwind Pay snapshots the top 100 merchants every 60 seconds rather than
+daily, which holds the tail to roughly 57,000 entries, and the single largest merchant every 10
+seconds, holding it to about 9,500.
 
 This is a general pattern for hot keys: **the cache refresh rate is a per-key decision, not a
 global constant.**
@@ -137,8 +147,9 @@ the complexity is genuine and the ordinary append-only design carried the load f
 Three things resist partitioning by merchant, and each needs its own answer.
 
 **The non-merchant ledger accounts.** `network_receivable:visa` receives an entry for every single
-capture — 2.76 million a day, at 10,800 per second peak across all merchants. It cannot live on one
-merchant's shard.
+capture — 2.76 million a day, and at peak 9,000 authorizations per second × 87.3% approved × 96%
+captured ≈ **7,500 entries per second** against that one account, across all merchants. It cannot
+live on one merchant's shard.
 
 The resolution: **non-merchant accounts are partitioned by shard.** Each shard holds its own
 `network_receivable:visa:shard_07` sub-account, entries are written locally, and the global

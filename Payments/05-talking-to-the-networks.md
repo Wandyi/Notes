@@ -203,8 +203,14 @@ The numbers at Northwind Pay: about 0.6% of authorizations exceed the 8-second i
 which is 1,200,000,000 × 0.006 ≈ 7.2 million per year. Of those, roughly 93% receive a network
 response before the 30-second window closes and are resolved automatically within a minute. The
 remaining 7% — about 504,000 per year, 1,380 per day — are genuinely unresolved and enter the
-recovery process. That is the 1,315-per-day figure quoted in document 03, arrived at from the
-other direction.
+recovery process.
+
+Note that this is a different population from document 03's 1,315 ambiguous requests per day, even
+though the two figures are close. Document 03 counted requests where *the merchant* did not get a
+response from Northwind Pay. This counts authorizations where *Northwind Pay* did not get a
+response from the issuer. The two overlap heavily and are not the same set: a merchant's connection
+can drop while the issuer answers perfectly well, and an issuer can go silent on a request whose
+merchant connection stayed healthy and received an honest `unknown`.
 
 ---
 

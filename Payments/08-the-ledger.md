@@ -316,8 +316,9 @@ tractable:
 
 - **Entries are append-only**, so there is no update contention and no row-level locking on hot
   accounts. This is a significant advantage over the naive design, where every capture for a
-  large merchant contends on one balance row — and the busiest Northwind Pay merchant does 1,100
-  captures per second at peak, which single-row updates cannot serve.
+  large merchant contends on one balance row. The busiest Northwind Pay merchant generates around
+  830 captures per second at peak, which is inside the range where single-row update contention
+  starts to dominate and leaves no headroom above it. Document 13 works that number through.
 - **The table is partitioned by `effective_at`**, monthly, so indexes stay manageable and old
   partitions can move to cheaper storage.
 - **Reads are served from snapshots plus a tail**, so the 11.5 billion rows are written once and
